@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "deepnn"
+version = "0.1.0"
+description = ""
+authors = ["Martin <martin.jarnier@epita.fr>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+torch = "^2.1.1"
+torchvision = "^0.16.1"
+dlib = "^19.24.2"
+opencv-python-headless = "^4.8.1.78"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
