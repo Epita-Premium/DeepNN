@@ -3,18 +3,24 @@ from src.processing.preprocessing import Preprocessor
 import os
 from torchvision.transforms.functional import to_tensor
 
-preprocessor = Preprocessor()
-heatmap_generator = HeatmapGenerator(face_predictor_path='src\processing\shape_predictor_68_face_landmarks.dat',
-                                     heatmap_dir='misc/heatmaps')
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+test_data_dir = os.path.join(project_root, 'misc/DATASET/test/1')
 
-for dirpath, dirnames, filenames in os.walk('misc/DATASET/test'):
+preprocessor = Preprocessor()
+heatmap_generator = HeatmapGenerator(heatmap_dir=os.path.join(project_root, 'misc/heatmaps'))
+index = 0
+
+for dirpath, dirnames, filenames in os.walk(test_data_dir):
     for filename in filenames:
-        if filename.endswith('.jpg') or filename.endswith('.png'):
+        if index <= 15 and (filename.endswith('.jpg') or filename.endswith('.png')):
             image_path = os.path.join(dirpath, filename)
 
             with open(image_path, 'rb') as f:
-                image = preprocessor.process_image(f).unsqueeze(0)  # Ajoutez une dimension de batch
-                image_tensor = to_tensor(image)
+                image_tensor = preprocessor.process_image(f)
+                if image_tensor.ndimension() == 4:
+                    image_tensor = image_tensor.squeeze(0)  # Supprimer la dimension de batch
 
             # Générez et enregistrez la heatmap
             heatmap_generator.generate_heatmap(image_tensor, filename)
+            index += 1
+
