@@ -1,47 +1,82 @@
-import cv2
-import numpy as np
-import os
 from torchvision.transforms.functional import to_pil_image
 import matplotlib as plt
 import cv2
 import numpy as np
 import os
 import dlib
-from torchvision.transforms.functional import to_pil_image
+import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
+from mediapipe import solutions
+from mediapipe.framework.formats import landmark_pb2
+import numpy as np
 
 
 class HeatmapGenerator:
-    def __init__(self, heatmap_dir, shape_predictor_path = os.path.abspath("processing/shape_predictor_68_face_landmarks.dat")):
-        # Chargement du modèle dlib pour la détection des repères faciaux
-        self.landmark_detector = dlib.shape_predictor(shape_predictor_path)
+    def __init__(self, heatmap_dir, model_path):
+        # Initialiser le détecteur de visages avec MediaPipe
+        base_options = python.BaseOptions(model_asset_path=model_path)
+        options = vision.FaceLandmarkerOptions(base_options=base_options,
+                                               output_face_blendshapes=True,
+                                               output_facial_transformation_matrixes=True,
+                                               num_faces=1)
+        self.detector = vision.FaceLandmarker.create_from_options(options)
 
         # Répertoire pour les heatmaps
         self.heatmap_dir = heatmap_dir
         if not os.path.exists(heatmap_dir):
             os.makedirs(heatmap_dir)
 
-    def generate_heatmap(self, preprocessed_image, original_filename):
-        if preprocessed_image.ndimension() == 4:
-            preprocessed_image = preprocessed_image.squeeze(0)
-        rgb_image = np.array(to_pil_image(preprocessed_image))
+    def process_image(self, image_path, original_filename):
+        # Charger et prétraiter l'image
+        image = mp.Image.create_from_file(image_path)
+        detection_result = self.detector.detect(image)
+        # Détecter les visages et annoter l'image
+        annotated_image = self.draw_landmarks_on_image(image.numpy_view(),detection_result)
 
-        # Utilisation de dlib pour la détection des visages
-        face_detector = dlib.get_frontal_face_detector()
-        detected_faces = face_detector(rgb_image, 1)
+        # Enregistrer l'image annotée
+        annotated_filename = os.path.join(self.heatmap_dir, os.path.splitext(original_filename)[0] + '_h.png')
+        cv2.imwrite(annotated_filename, annotated_image)
+        print("Image saved to", annotated_filename)
 
-        heatmap = np.zeros((224, 224), dtype=np.float32)
+        return annotated_image
 
-        for face in detected_faces:
-            landmarks = self.landmark_detector(rgb_image, face)
+    def draw_landmarks_on_image(self, rgb_image,detection_result):
+        face_landmarks_list = detection_result.face_landmarks
+        height, width , _= rgb_image.shape
+        #annotated_image = np.copy(rgb_image)
+        annotated_image = np.zeros((height, width, 3), dtype=np.uint8)
 
-            for i in range(68):  # dlib détecte 68 repères
-                x, y = landmarks.part(i).x, landmarks.part(i).y
-                if 0 <= x < 224 and 0 <= y < 224:
-                    cv2.circle(heatmap, (int(x), int(y)), radius=2, color=1, thickness=-1)
+        NOSE =[1,2, 4, 5, 6,19, 275, 278, 294, 168, 45, 48, 440, 64, 195, 197, 326, 327, 328, 331, 332, 344, 220, 94, 97, 98]
+        # Loop through the detected faces to visualize.
+        for idx in range(len(face_landmarks_list)):
+            face_landmarks = face_landmarks_list[idx]
+            selected_landmarks = [face_landmarks[i] for i in NOSE]
+            for landmark in selected_landmarks:
+                x, y = int(landmark.x * width), int(landmark.y * height)
+                cv2.circle(annotated_image, (x, y), 3, (255,255,255), thickness=-1)  # 255 for white points
+            # Draw the face landmarks.
+            face_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
+            face_landmarks_proto.landmark.extend([
+                landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in
+                face_landmarks
+            ])
 
-        heatmap = cv2.GaussianBlur(heatmap, (0, 0), sigmaX=3, sigmaY=3, borderType=cv2.BORDER_DEFAULT)
+            solutions.drawing_utils.draw_landmarks(
+                image=annotated_image,
+                landmark_list=face_landmarks_proto,
+                connections=mp.solutions.face_mesh.FACEMESH_CONTOURS,
+                landmark_drawing_spec=None,
+                connection_drawing_spec=mp.solutions.drawing_styles
+                .get_default_face_mesh_contours_style())
 
-        heatmap_filename = os.path.join(self.heatmap_dir, os.path.splitext(original_filename)[0] + '.png')
-        cv2.imwrite(heatmap_filename, heatmap * 255)
-        print("Heatmap generated for", original_filename)
+            solutions.drawing_utils.draw_landmarks(
+                image=annotated_image,
+                landmark_list=face_landmarks_proto,
+                connections=mp.solutions.face_mesh.FACEMESH_IRISES,
+                landmark_drawing_spec=None,
+                connection_drawing_spec=mp.solutions.drawing_styles
+                .get_default_face_mesh_iris_connections_style())
 
+        annotated_image = cv2.GaussianBlur(annotated_image, (0, 0), 1)
+        return annotated_image

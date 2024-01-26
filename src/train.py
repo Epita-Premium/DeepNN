@@ -90,7 +90,9 @@ def train_model(model, data_loader, num_epochs, criterion, optimizer, device, he
 
                 # Ajuster la perte en fonction des heatmaps et des gradients (PAL)
                 adjusted_loss = custom_loss_function(loss, gradients, heatmap)
+                optimizer.zero_grad()
                 adjusted_loss.backward()
+                optimizer.step()
 
             print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}")
             torch.save(model.state_dict(), "resnet50_pal.pth")
