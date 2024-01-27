@@ -5,7 +5,6 @@ import matplotlib as plt
 import cv2
 import numpy as np
 import os
-import dlib
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
