@@ -1,98 +1,64 @@
 import torch
-import torchvision.models as models
-import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-from PIL import Image
-import os
-import numpy as np
-import cv2
-import dlib
-
-# Vos classes déjà définies
-from processing.preprocessing import Preprocessor
-from processing.heatmapGenerator import HeatmapGenerator
-from Attribution_methods.gradientSimple import GradientAttribution
-
-# Configuration
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-num_epochs = 10
-learning_rate = 1e-4
-
-# Charger le modèle ResNet50
-model = models.resnet50(pretrained=True).to(device)
-model.eval()
-
-# Optimiseur
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-# Définir la perte (vous pouvez choisir une fonction de perte adaptée à votre problème)
-criterion = torch.nn.CrossEntropyLoss()
-
-# Initialiser vos classes
-preprocessor = Preprocessor()
-heatmap_generator = HeatmapGenerator(heatmap_dir="path/to/heatmaps")
-gradient_attrib = GradientAttribution(model)
+from Attribution_methods.gradcam import GradCAM
+from Attribution_methods.grad_paper import Grad_Paper
 
 
-# Fonction de prétraitement pour l'image
-def process_image(image_path):
-    image = Image.open(image_path)
-    image = preprocessor.process_image(image)
-    return image
+def normalize_map(map):
+    return map / (map.max() + 1e-5)
 
 
-def custom_loss_function(original_loss, gradients, heatmap, alpha=0.5):
-    """
-    Custom loss function qui ajuste la perte originale en fonction des heatmaps et des gradients.
+def privileged_attribution_loss(attribution_maps, heatmap_prior):
+    normalized_attribution_maps = [normalize_map(map) for map in attribution_maps]
+    normalized_heatmap_prior = normalize_map(heatmap_prior)
 
-    :param original_loss: Perte calculée par la fonction de perte standard.
-    :param gradients: Gradients d'attribution pour l'image.
-    :param heatmap: Heatmap générée pour l'image.
-    :param alpha: Poids pour l'ajustement de la perte en fonction des heatmaps et des gradients.
-    :return: Perte ajustée.
-    """
-    # Normaliser les gradients et les heatmaps pour les rendre comparables
-    normalized_gradients = torch.norm(gradients, p=2, dim=1)
-    normalized_heatmap = heatmap / heatmap.max()
+    # Cross-correlation
+    loss = sum(-torch.sum(map * normalized_heatmap_prior) for map in normalized_attribution_maps)
+    return loss
 
-    # Calculer la différence entre les gradients et les heatmaps
-    diff = torch.abs(normalized_gradients - normalized_heatmap)
 
-    # Ajuster la perte originale en fonction de la différence
-    adjusted_loss = original_loss + alpha * diff.mean()
-
+def custom_loss_function(original_loss, attribution_maps, heatmap_prior, alpha=0.5):
+    pal_loss = privileged_attribution_loss(attribution_maps, heatmap_prior)
+    adjusted_loss = original_loss + alpha * pal_loss
     return adjusted_loss
 
 
-def train_model(model, data_loader, num_epochs, criterion, optimizer, device, heatmap_generator, gradient_attrib):
-    for epoch in range(num_epochs):
-        for batch in data_loader:
-            images, labels = batch
-            images, labels = images.to(device), labels.to(device)
+class Trainer:
+    def __init__(self, model, train_loader, criterion, optimizer, device, num_epochs, attribution_method='gradcam'):
+        self.model = model
+        self.train_loader = train_loader
+        self.criterion = criterion
+        self.optimizer = optimizer
+        self.device = device
+        self.num_epochs = num_epochs
+        self.attribution_method = attribution_method.lower()
+        if self.attribution_method == 'gradcam':
+            self.attribution = GradCAM(model, target_layer='layer4')  # example layer
+        elif self.attribution_method == 'grad_paper':
+            self.attribution = Grad_Paper(model, target_layers='layer4')
+        else:
+            raise ValueError("Invalid attribution method specified.")
 
-            optimizer.zero_grad()
+    def train(self):
+        for epoch in range(self.num_epochs):
+            for images, heatmaps, labels in self.train_loader:
+                images, heatmaps, labels = images.to(self.device), heatmaps.to(self.device), labels.to(self.device)
+                self.optimizer.zero_grad()
+                outputs = self.model(images)
+                loss = self.criterion(outputs, labels)
 
-            for image, label in zip(images, labels):
-                # Forward pass
-                output = model(image.unsqueeze(0))
-                loss = criterion(output, label.unsqueeze(0))
+                if self.attribution_method == 'gradcam':
+                    attribution_maps = [self.attribution.generate_cam(image.unsqueeze(0), target)
+                                        for image, target in zip(images, outputs.argmax(1))]
+                elif self.attribution_method == 'grad_paper':
+                    attribution_maps = self.attribution.generate_attribution_map(images, outputs.argmax(1))
 
-                # Backward pass et optimisation
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
 
-                # Générer la heatmap
-                heatmap = heatmap_generator.generate_heatmap(image.cpu().numpy(), "temp_filename")
+                #Convertir en tenseur et ajuster la perte
+                attribution_maps_tensor = torch.stack(attribution_maps).to(self.device)
+                adjusted_loss = custom_loss_function(loss, attribution_maps_tensor, heatmaps)
 
-                # Calculer les gradients d'attribution
-                gradients = gradient_attrib.compute_gradients(image.unsqueeze(0), label.item())
-
-                # Ajuster la perte en fonction des heatmaps et des gradients (PAL)
-                adjusted_loss = custom_loss_function(loss, gradients, heatmap)
-                optimizer.zero_grad()
                 adjusted_loss.backward()
-                optimizer.step()
+                self.optimizer.step()
 
-            print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}")
-            torch.save(model.state_dict(), "resnet50_pal.pth")
+                print(f"Epoch [{epoch + 1}/{self.num_epochs}], Loss: {adjusted_loss.item():.4f}")

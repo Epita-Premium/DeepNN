@@ -1,3 +1,5 @@
+import logging
+
 from torchvision.transforms.functional import to_pil_image
 import matplotlib as plt
 import cv2
@@ -26,6 +28,16 @@ class HeatmapGenerator:
         self.heatmap_dir = heatmap_dir
         if not os.path.exists(heatmap_dir):
             os.makedirs(heatmap_dir)
+
+    def generate_heatmaps_for_directory(self,base_dir):
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        for dirpath, dirnames, filenames in os.walk(base_dir):
+            logging.info(f'Processing {filenames}')
+            for filename in filenames:
+                if filename.endswith('.jpg') or filename.endswith('.png'):
+                    image_path = os.path.join(dirpath, filename)
+                    logging.info(f'Processing {image_path}')
+                    self.process_image(image_path, filename)
 
     def process_image(self, image_path, original_filename):
         # Charger et prétraiter l'image
@@ -80,3 +92,5 @@ class HeatmapGenerator:
 
         annotated_image = cv2.GaussianBlur(annotated_image, (0, 0), 1)
         return annotated_image
+
+
