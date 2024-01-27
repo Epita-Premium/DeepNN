@@ -31,6 +31,7 @@ class CustomDataset(Dataset):
             for image in os.listdir(os.path.join(image_dir, emotion_dir)):
                 self.image_names.append((emotion_dir, image))
 
+
     def __len__(self):
         return len(self.image_names)
 
@@ -47,9 +48,10 @@ class CustomDataset(Dataset):
 
         image = Image.open(img_path).convert('RGB')
         heatmap = Image.open(heatmap_path).convert('RGB')
+        label = emotion_dir
 
         if self.transform:
             image, heatmap = apply_transform(image, heatmap, self.transform)
 
-        return image, heatmap
+        return image, heatmap, label
 

@@ -22,6 +22,7 @@ heatmap_generator = HeatmapGenerator(
 )
 
 
+
 def test_goo():
     index = 0
     for dirpath, dirnames, filenames in os.walk(test_data_dir):
@@ -35,9 +36,10 @@ def test_goo():
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-def test_custom_dataset(data_loader, num_samples=4):
+def test_custom_dataset(data_loader, num_samples=1):
     # Iterate through the DataLoader
-    for i, (images, heatmaps) in enumerate(data_loader):
+    i = 0
+    for images, heatmaps, labels in data_loader:
         if i >= num_samples:
             break
 
@@ -58,6 +60,8 @@ def test_custom_dataset(data_loader, num_samples=4):
             plt.axis('off')
 
             plt.show()
+            print(labels[j])
+            i += 1
 
 
 # Run the test function
@@ -68,7 +72,6 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 project_root = os.path.dirname(os.path.dirname(__file__))
-train_dataset_path = os.path.join(project_root, 'misc', 'DATASET', 'test')
-custom_dataset = CustomDataset(image_dir=train_dataset_path, transform=transform)
+custom_dataset = CustomDataset(image_dir=test_data_dir, transform=transform)
 data_loader = DataLoader(custom_dataset, batch_size=16, shuffle=True)
 test_custom_dataset(data_loader)
