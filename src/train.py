@@ -45,6 +45,8 @@ class Trainer:
 
     def train(self):
         for epoch in range(self.num_epochs):
+            total_accuracy = 0
+            total_batches = 0
             with tqdm(self.train_loader, unit="batch") as tepoch:
                 for images, heatmaps, labels in self.train_loader:
                     images, heatmaps = images.to(self.device), heatmaps.to(self.device)
@@ -52,6 +54,16 @@ class Trainer:
                     self.optimizer.zero_grad()
                     outputs = self.model(images)
                     loss = self.criterion(outputs, labels)
+
+                    # Calcul de l'accuracy pour le batch actuel
+                    _, predicted = torch.max(outputs.data, 1)
+                    total = labels.size(0)
+                    correct = (predicted == labels).sum().item()
+                    accuracy = correct / total
+
+                    # Mise à jour de l'accuracy cumulative
+                    total_accuracy += accuracy
+                    total_batches += 1
 
                     if self.attribution_method == 'gradcam':
                         attribution_maps = [self.attribution.generate_cam(image.unsqueeze(0), target)
@@ -70,4 +82,12 @@ class Trainer:
                     self.optimizer.step()
                     tepoch.set_postfix(loss=adjusted_loss.item())
 
-                    print(f"Epoch [{epoch + 1}/{self.num_epochs}], Loss: {adjusted_loss.item():.4f}")
+                # Affichage de l'accuracy moyenne pour l'époque
+                epoch_accuracy = total_accuracy / total_batches
+                print(
+                    f"Epoch [{epoch + 1}/{self.num_epochs}], Loss: {adjusted_loss.item():.4f}, Accuracy: {epoch_accuracy:.4f}")
+
+                # Sauvegarde du modèle à la fin de chaque epoch
+                model_save_path = f"resnet50_pal_epoch{epoch + 1}.pth"
+                torch.save(self.model.state_dict(), model_save_path)
+                print(f"Modèle sauvegardé à l'epoch {epoch + 1} dans {model_save_path}")
